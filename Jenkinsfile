@@ -25,27 +25,22 @@ stage('Setup Python Environment') {
   agent {
     docker {
       image 'python:3.11-slim'
-      args '--dns=8.8.8.8 --dns=1.1.1.1'  // <- important
+      args '-v /etc/resolv.conf:/etc/resolv.conf:ro'  // <- force le DNS du host
       reuseNode true
     }
   }
   steps {
     sh '''
-      echo "🔎 Connectivity check..."
-      getent hosts pypi.org || true
+      echo "🔎 DNS check (host resolv.conf mounted)..."
       cat /etc/resolv.conf || true
+      getent hosts pypi.org || true
 
-      echo "🐍 Setting up Python virtual environment..."
       python -m venv venv
       . venv/bin/activate
-
-      # éviter d’upgrader pip (moins d’appels réseau)
-      # pip install --upgrade pip
-
-      # pip avec timeout/retry explicites
-      pip install -r requirements.txt --retries 5 --timeout 120 -i https://pypi.org/simple
+      pip install -r requirements.txt --retries 5 --timeout 120
     '''
   }
+}
 }
 
         /* -------------------------------
