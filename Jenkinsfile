@@ -22,14 +22,28 @@ pipeline {
            2️⃣ SETUP PYTHON ENVIRONMENT
         --------------------------------*/
 stage('Setup Python Environment') {
-  agent { docker { image 'python:3.11-slim'; reuseNode true } }
+  agent {
+    docker {
+      image 'python:3.11-slim'
+      args '--dns=8.8.8.8 --dns=1.1.1.1'  // <- important
+      reuseNode true
+    }
+  }
   steps {
     sh '''
+      echo "🔎 Connectivity check..."
+      getent hosts pypi.org || true
+      cat /etc/resolv.conf || true
+
       echo "🐍 Setting up Python virtual environment..."
       python -m venv venv
       . venv/bin/activate
-      pip install --upgrade pip
-      pip install -r requirements.txt
+
+      # éviter d’upgrader pip (moins d’appels réseau)
+      # pip install --upgrade pip
+
+      # pip avec timeout/retry explicites
+      pip install -r requirements.txt --retries 5 --timeout 120 -i https://pypi.org/simple
     '''
   }
 }
