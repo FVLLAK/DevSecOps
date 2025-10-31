@@ -21,18 +21,18 @@ pipeline {
         /* -------------------------------
            2️⃣ SETUP PYTHON ENVIRONMENT
         --------------------------------*/
-        stage('Setup Python Environment') {
-            steps {
-                sh '''
-                    echo "🐍 Setting up Python virtual environment..."
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r requirements.txt
-                    pip install pytest bandit safety
-                '''
-            }
-        }
+stage('Setup Python Environment') {
+  agent { docker { image 'python:3.11-slim'; reuseNode true } }
+  steps {
+    sh '''
+      echo "🐍 Setting up Python virtual environment..."
+      python -m venv venv
+      . venv/bin/activate
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    '''
+  }
+}
 
         /* -------------------------------
            3️⃣ RUN UNIT TESTS
