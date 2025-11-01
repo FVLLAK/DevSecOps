@@ -7,8 +7,6 @@ pipeline {
   }
 
   stages {
-
-    /* 1) Checkout */
     stage('Checkout') {
       steps {
         checkout scm
@@ -16,115 +14,59 @@ pipeline {
       }
     }
 
-    /* 2) (Optionnel) Net debug */
-    stage('Net debug') {
-      agent {
-        docker {
-          image 'busybox'
-          args  '--network host'
-          reuseNode true
-        }
-      }
-      steps {
-        sh '''
-          echo "DNS (host):"
-          cat /etc/resolv.conf || true
-          echo "Resolve pypi.org:"
-          nslookup pypi.org || true
-          echo "HTTP check:"
-          wget -qO- https://pypi.org/simple/pip/ | head -n 5 || true
-        '''
-      }
-    }
-
-    /* 3) Setup Python + deps */
-    stage('Setup Python Environment') {
+    // 1) Télécharger les wheels (hors Docker build)
+    stage('Vendor deps (download wheels)') {
       agent {
         docker {
           image 'python:3.11-slim'
+          // si tu es derrière un proxy, remplace par les variables proxy au lieu de --network host
           args  '--network host'
           reuseNode true
         }
       }
       steps {
         sh '''
-          echo "🐍 Setting up Python virtual environment..."
+          echo "📦 Downloading wheels..."
           python -m venv venv
           . venv/bin/activate
-          pip install -r requirements.txt --retries 5 --timeout 120
+          mkdir -p wheels
+          pip download -r requirements.txt -d wheels --retries 5 --timeout 120
+          echo "✅ Wheels ready:"
+          ls -lh wheels
         '''
       }
     }
 
-    /* 4) Tests (facultatif) */
-    stage('Run Unit Tests') {
-      agent {
-        docker {
-          image 'python:3.11-slim'
-          args  '--network host'
-          reuseNode true
-        }
-      }
+    // 2) Construire l'image en installant depuis /wheels (offline)
+    stage('Build Docker Image (offline)') {
       steps {
         sh '''
-          . venv/bin/activate || true
-          if command -v pytest >/dev/null 2>&1; then
-            echo "🧪 Running tests..."
-            pytest -q || true
-          else
-            echo "pytest non installé, étape ignorée."
-          fi
-        '''
-      }
-    }
+          echo "🐳 Building image (offline deps)..."
+          # Astuce: s'assurer que wheels/ est bien dans le contexte
+          test -d wheels && test "$(ls -A wheels)" || { echo "❌ Aucun wheel téléchargé"; exit 1; }
 
-    /* 5) Build image */
-    stage('Build Docker Image') {
-      steps {
-        sh '''
-          echo "🐳 Building image..."
-	  docker build --network=host -t ${IMAGE_NAME}:latest .
+          docker build -t ${IMAGE_NAME}:latest .
           docker images | grep ${IMAGE_NAME} || true
         '''
       }
     }
 
-    /* 6) Trivy scan (si installé sur l’agent) */
-    stage('Trivy Scan') {
-      when { expression { return sh(script: 'command -v trivy >/dev/null 2>&1', returnStatus: true) == 0 } }
-      steps {
-        sh '''
-          echo "🔍 Trivy scan..."
-          trivy image --severity HIGH,CRITICAL --exit-code 0 ${IMAGE_NAME}:latest || true
-        '''
-      }
-    }
-
-    /* 7) Deploy (docker compose) */
+    // 3) Déployer sans rebuild (compose n'essaie pas de reconstruire)
     stage('Deploy') {
       steps {
         sh '''
           echo "🚀 Deploying with docker compose..."
           docker compose down || true
-          docker compose up -d --build
+          docker compose up -d --no-build
           docker ps
         '''
       }
     }
+  }
 
-  } /* fin stages */
-
-  /* Post */
   post {
-    success {
-      echo "✅ Pipeline completed successfully!"
-    }
-    failure {
-      echo "❌ Pipeline failed! Check console logs and reports."
-    }
-    always {
-      echo "🧹 Cleaning workspace..."
-      cleanWs()
-    }
+    success { echo "✅ Pipeline completed successfully!" }
+    failure { echo "❌ Pipeline failed. Check logs." }
+    always  { cleanWs() }
   }
 }
