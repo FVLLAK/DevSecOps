@@ -83,7 +83,7 @@ pipeline {
       steps {
         sh '''
           echo "🐳 Building image..."
-          docker build -t ${IMAGE_NAME}:latest .
+	  docker build --network=host -t ${IMAGE_NAME}:latest .
           docker images | grep ${IMAGE_NAME} || true
         '''
       }
